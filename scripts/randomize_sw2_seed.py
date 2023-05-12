@@ -13,7 +13,7 @@ def get_old_seed():
         code = f.read()
     match = re.search(r'#define SW2_SEED (0x[a-fA-F0-9]{8})', code)
     assert match is not None, 'SW2_SEED not found!'
-    return match.group(1)
+    return match[1]
 
 
 def replace_seed(old_seed, new_seed):
@@ -32,7 +32,7 @@ def get_function_hash(seed, function_name, is_syscall=True):
     function_hash = seed
     function_name = function_name.replace('_', '')
     if is_syscall and function_name[:2] == 'Nt':
-        function_name = 'Zw' + function_name[2:]
+        function_name = f'Zw{function_name[2:]}'
     name = function_name + '\0'
     ror8 = lambda v: ((v >> 8) & (2 ** 32 - 1)) | ((v << 24) & (2 ** 32 - 1))
 
@@ -52,10 +52,13 @@ def replace_syscall_hashes(seed):
     syscall_definitions = code.split('#elif defined(__GNUC__)')[4]
 
     for syscall_name in syscall_names:
-        regex = re.compile('NTSTATUS ' + syscall_name + '\\(.*?"mov rcx, (0x[A-Fa-f0-9]{8})', re.DOTALL)
+        regex = re.compile(
+            f'NTSTATUS {syscall_name}' + '\\(.*?"mov rcx, (0x[A-Fa-f0-9]{8})',
+            re.DOTALL,
+        )
         match = re.search(regex, syscall_definitions)
         assert match is not None, f'hash of syscall {syscall_name} not found!'
-        old_hash = match.group(1)
+        old_hash = match[1]
         new_hash = get_function_hash(seed, syscall_name)
         print(f'{syscall_name} -> {old_hash} - 0x{new_hash:08X}')
         code = code.replace(
@@ -73,7 +76,7 @@ def replace_syscall_hashes(seed):
         regex = re.compile(syscall_name + ' PROC.*?mov rcx, 0([A-Fa-f0-9]{8})h', re.DOTALL)
         match = re.search(regex, code)
         assert match is not None, f'hash of syscall {syscall_name} not found!'
-        old_hash = match.group(1)
+        old_hash = match[1]
         new_hash = get_function_hash(seed, syscall_name)
         code = code.replace(
             f'0{old_hash}h',
@@ -112,15 +115,6 @@ def main():
     new_hash = get_function_hash(new_seed, fun, True)
     print(f'{fun}: 0x{new_hash:08X}')
     return
-
-    old_seed = get_old_seed()
-    replace_seed(old_seed, new_seed)
-    replace_syscall_hashes(new_seed)
-    replace_dinvoke_hashes(new_seed)
-    if os.name == 'nt':
-        print('done! recompile with:\nnmake -f Makefile.msvc')
-    else:
-        print('done! recompile with:\nmake -f Makefile.mingw')
 
 if __name__ == '__main__':
     main()
